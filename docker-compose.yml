@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mongo-init-replica:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: >
+      bash -lc
+      "mongosh --host mongo:27017 -u mongo -p mongo --authenticationDatabase admin
+      --eval 'rs.initiate({_id:\"rs0\", members:[{_id:0, host:\"mongo:27017\"}]})'
+      || true"
+    restart: "no"
+
+  app:
+    build: .
+    container_name: s04t02n03-app
+    depends_on:
+      mongo-init-replica:
+        condition: service_completed_successfully
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:mongo@mongo:27017/fruitdb?authSource=admin&replicaSet=rs0
+      LOGGING_LEVEL_ROOT: INFO
+    ports:
+      - "8080:8080"
+
+volumes:
+  mongo_data:
